@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --gold: #f5c842;
+  --gold-2: #fbe089;
+  --blue: #1e3a8a;
+  --blue-2: #3b82f6;
+}
+
+html, body { background: #070b1a; }
+
+.glass {
+  background: linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(245, 200, 66, 0.18);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+.glass-strong {
+  background: linear-gradient(135deg, rgba(245,200,66,0.10), rgba(30,58,138,0.18));
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(245, 200, 66, 0.30);
+}
+
+.gold-text {
+  background: linear-gradient(135deg, #fbe089 0%, #f5c842 40%, #b8860b 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.gold-btn {
+  background: linear-gradient(135deg, #fbe089 0%, #f5c842 50%, #b8860b 100%);
+  color: #1a1a2e;
+  font-weight: 700;
+  border: 1px solid rgba(255,255,255,0.25);
+  box-shadow: 0 8px 24px rgba(245, 200, 66, 0.35);
+  transition: all .2s ease;
+}
+.gold-btn:hover { transform: translateY(-1px); box-shadow: 0 12px 28px rgba(245, 200, 66, 0.5); }
+.gold-btn:disabled { opacity: .45; cursor: not-allowed; transform:none; }
+
+.aurora {
+  background:
+    radial-gradient(60% 60% at 20% 10%, rgba(245, 200, 66, 0.20) 0%, transparent 60%),
+    radial-gradient(60% 60% at 90% 30%, rgba(59, 130, 246, 0.18) 0%, transparent 60%),
+    radial-gradient(50% 60% at 50% 100%, rgba(139, 92, 246, 0.12) 0%, transparent 60%),
+    #070b1a;
+}
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
+
+@keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
+.shimmer {
+  background: linear-gradient(90deg, transparent, rgba(245,200,66,0.25), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 2.4s linear infinite;
+}
+
+@keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+.floaty { animation: float 5s ease-in-out infinite; }
