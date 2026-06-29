@@ -96,7 +96,19 @@ async function seed(db) {
         { id: uuidv4(), name: 'Priya M.', role: 'Top Referrer', avatar: '', text: 'Made $2k in referral income. The leaderboard is fire.', rating: 5 },
         { id: uuidv4(), name: 'Daniel K.', role: 'Pro Trader', avatar: '', text: 'Daily collection is seamless and instant.', rating: 5 },
       ],
-      contact: { email: 'support@investers.io', phone: '+1 800 INV-PRMR', address: '123 Wall Street, NY', telegram: 't.me/investers', whatsapp: '+1234567890' },
+      contact: { email: 'support@investers.io', phone: '+1 800 INV-PRMR', address: '123 Wall Street, NY', telegram: 't.me/investers', whatsapp: '+1234567890', businessName: 'Investers Blueprint LLC', telegramChannel: 't.me/investers_official', workingHours: 'Mon-Sat · 9:00 AM – 9:00 PM (UTC)', responseTime: 'Within 24 hours' },
+      social: {
+        telegram: { enabled: true, url: 'https://t.me/investers' },
+        whatsapp: { enabled: true, url: 'https://wa.me/1234567890' },
+        facebook: { enabled: false, url: 'https://facebook.com/investers' },
+        instagram: { enabled: false, url: 'https://instagram.com/investers' },
+        twitter: { enabled: true, url: 'https://twitter.com/investers' },
+        youtube: { enabled: true, url: 'https://youtube.com/investers' },
+        discord: { enabled: false, url: '' },
+        website: { enabled: true, url: 'https://investers.io' },
+      },
+      floatingSupportEnabled: true,
+      supportCategories: ['Recharge Problem', 'Withdrawal Problem', 'INR to USD Deposit Problem', 'Other Query'],
       socialLinks: [
         { name: 'Telegram', url: 'https://t.me/investers' },
         { name: 'Twitter', url: 'https://twitter.com/investers' },
@@ -676,15 +688,48 @@ async function handle(request, ctx) {
   if (path === 'tickets' && method === 'POST') {
     const r = await requireUser(request); if (r.error) return r.error
     const b = await request.json()
-    const t = { id: uuidv4(), userId: r.user.id, userName: r.user.name, subject: b.subject || 'Support', status: 'open', messages: [{ from: 'user', text: b.message, at: new Date() }], createdAt: new Date() }
+    const t = {
+      id: uuidv4(),
+      ticketNo: 'TKT-' + Date.now().toString(36).toUpperCase(),
+      userId: r.user.id, userName: r.user.name,
+      category: b.category || 'Other Query',
+      subject: b.subject || 'Support Request',
+      screenshot: b.screenshot || '',
+      userInfo: { name: r.user.name, email: r.user.email, phone: r.user.phone, registeredAt: r.user.createdAt, userId: r.user.id, referralCode: r.user.referralCode },
+      status: 'pending',
+      messages: [{ from: 'user', text: b.message || '', screenshot: b.screenshot || '', at: new Date() }],
+      createdAt: new Date(), updatedAt: new Date(),
+    }
     await db.collection('tickets').insertOne(t); delete t._id
     return J({ ticket: t })
   }
   if (path === 'tickets' && method === 'GET') {
     const r = await requireUser(request); if (r.error) return r.error
-    const q = r.user.role === 'admin' ? {} : { userId: r.user.id }
-    const items = await db.collection('tickets').find(q, { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray()
+    const url = new URL(request.url)
+    const cat = url.searchParams.get('category')
+    const st = url.searchParams.get('status')
+    const q = url.searchParams.get('q')
+    const filter = r.user.role === 'admin' ? {} : { userId: r.user.id }
+    if (cat) filter.category = cat
+    if (st) filter.status = st
+    if (q && r.user.role === 'admin') {
+      filter.$or = [
+        { 'userInfo.userId': { $regex: q, $options: 'i' } },
+        { 'userInfo.name': { $regex: q, $options: 'i' } },
+        { 'userInfo.email': { $regex: q, $options: 'i' } },
+        { ticketNo: { $regex: q, $options: 'i' } },
+        { subject: { $regex: q, $options: 'i' } },
+      ]
+    }
+    const items = await db.collection('tickets').find(filter, { projection: { _id: 0 } }).sort({ updatedAt: -1, createdAt: -1 }).toArray()
     return J({ items })
+  }
+  if (seg[0] === 'tickets' && seg[1] && seg[2] === 'status' && method === 'PATCH') {
+    const r = await requireAdmin(request); if (r.error) return r.error
+    const { status } = await request.json()
+    if (!['pending', 'in_progress', 'resolved', 'closed', 'open'].includes(status)) return err('Invalid status')
+    await db.collection('tickets').updateOne({ id: seg[1] }, { $set: { status, updatedAt: new Date() } })
+    return J({ ok: true })
   }
   if (seg[0] === 'tickets' && seg[1] && seg[2] === 'reply' && method === 'POST') {
     const r = await requireUser(request); if (r.error) return r.error
@@ -692,8 +737,13 @@ async function handle(request, ctx) {
     const t = await db.collection('tickets').findOne({ id: seg[1] })
     if (!t) return err('Not found', 404)
     if (r.user.role !== 'admin' && t.userId !== r.user.id) return err('Forbidden', 403)
-    const upd = { $push: { messages: { from: r.user.role === 'admin' ? 'admin' : 'user', text: b.message, at: new Date() } } }
-    if (b.status) upd.$set = { status: b.status }
+    const msg = { from: r.user.role === 'admin' ? 'admin' : 'user', text: b.message, screenshot: b.screenshot || '', at: new Date() }
+    const upd = { $push: { messages: msg }, $set: { updatedAt: new Date() } }
+    if (b.status) upd.$set.status = b.status
+    // When user replies on resolved/closed, reopen as in_progress
+    else if (r.user.role === 'user' && ['resolved', 'closed'].includes(t.status)) upd.$set.status = 'in_progress'
+    // First admin reply moves pending → in_progress
+    else if (r.user.role === 'admin' && t.status === 'pending') upd.$set.status = 'in_progress'
     await db.collection('tickets').updateOne({ id: t.id }, upd)
     return J({ ok: true })
   }

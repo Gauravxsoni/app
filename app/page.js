@@ -273,7 +273,7 @@ function HomePage({ settings, plans, onNav }) {
         <FAQ faq={settings?.faq || []} />
       </Section>
 
-      <ContactSection contact={settings?.contact} social={settings?.socialLinks} />
+      <ContactSection contact={settings?.contact} social={settings?.socialLinks} socialV2={settings?.social} />
       <Footer settings={settings} />
 
       <AnimatePresence>
@@ -358,19 +358,25 @@ function TestimonialsSection({ items }) {
   )
 }
 
-function ContactSection({ contact, social }) {
+function ContactSection({ contact, social, socialV2 }) {
   if (!contact) return null
+  const PLATFORM_LABELS = { telegram: 'Telegram', whatsapp: 'WhatsApp', facebook: 'Facebook', instagram: 'Instagram', twitter: 'X (Twitter)', youtube: 'YouTube', discord: 'Discord', website: 'Website' }
+  const enabledSocial = socialV2 ? Object.entries(socialV2).filter(([k, v]) => v?.enabled && v?.url).map(([k, v]) => ({ name: PLATFORM_LABELS[k] || k, url: v.url, key: k })) : (social || [])
   return (
     <Section title="Contact & Community" icon={MessageSquare}>
       <GlassCard className="p-4 grid sm:grid-cols-2 gap-3 text-sm">
+        {contact.businessName && <div className="sm:col-span-2 font-semibold gold-text">{contact.businessName}</div>}
         <div><span className="text-white/50 text-xs">Email</span><div>{contact.email}</div></div>
         <div><span className="text-white/50 text-xs">Phone</span><div>{contact.phone}</div></div>
         <div><span className="text-white/50 text-xs">Telegram</span><div>{contact.telegram}</div></div>
         <div><span className="text-white/50 text-xs">WhatsApp</span><div>{contact.whatsapp}</div></div>
+        {contact.telegramChannel && <div><span className="text-white/50 text-xs">Telegram Channel</span><div>{contact.telegramChannel}</div></div>}
+        {contact.workingHours && <div><span className="text-white/50 text-xs">Working Hours</span><div>{contact.workingHours}</div></div>}
+        {contact.responseTime && <div><span className="text-white/50 text-xs">Response Time</span><div>{contact.responseTime}</div></div>}
         <div className="sm:col-span-2"><span className="text-white/50 text-xs">Address</span><div>{contact.address}</div></div>
-        <div className="sm:col-span-2 flex flex-wrap gap-2 pt-2 border-t border-white/5">
-          {(social || []).map((s, i) => <a key={i} href={s.url} target="_blank" rel="noreferrer" className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs hover:bg-white/10">{s.name}</a>)}
-        </div>
+        {enabledSocial.length > 0 && <div className="sm:col-span-2 flex flex-wrap gap-2 pt-2 border-t border-white/5">
+          {enabledSocial.map((s, i) => <a key={i} href={s.url} target="_blank" rel="noreferrer" className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs hover:bg-white/10">{s.name}</a>)}
+        </div>}
       </GlassCard>
     </Section>
   )
@@ -698,34 +704,140 @@ function NotificationsPage({ settings }) {
   return (<div className="space-y-4 pb-28"><h1 className="text-2xl font-bold gold-text">Notifications</h1>{(settings?.announcements || []).map(a => <GlassCard key={a.id} className="p-4"><div className="font-semibold text-yellow-300">{a.title}</div><div className="text-sm text-white/80 mt-1">{a.message}</div><div className="text-xs text-white/40 mt-1">{new Date(a.createdAt).toLocaleString()}</div></GlassCard>)}</div>)
 }
 
-function SupportPage() {
-  const [tickets, setTickets] = useState([]); const [subject, setSubject] = useState(''); const [msg, setMsg] = useState('')
-  const [active, setActive] = useState(null); const [reply, setReply] = useState('')
+function SupportPage({ user, settings }) {
+  const [tickets, setTickets] = useState([])
+  const [category, setCategory] = useState(null) // selected category opens form
+  const [active, setActive] = useState(null)     // selected ticket opens chat
+  const [form, setForm] = useState({ subject: '', message: '', screenshot: '' })
+  const [reply, setReply] = useState('')
+  const [replyShot, setReplyShot] = useState('')
   const load = () => api('tickets').then(r => setTickets(r.items))
   useEffect(() => { load() }, [])
-  const create = async () => { if (!msg) return; await api('tickets', { method: 'POST', body: { subject, message: msg } }); setSubject(''); setMsg(''); load() }
-  const send = async () => { if (!reply || !active) return; await api(`tickets/${active.id}/reply`, { method: 'POST', body: { message: reply } }); setReply(''); const r = await api('tickets'); setTickets(r.items); setActive(r.items.find(t => t.id === active.id)) }
+  const categories = settings?.supportCategories || ['Recharge Problem', 'Withdrawal Problem', 'INR to USD Deposit Problem', 'Other Query']
+  const catIcons = { 'Recharge Problem': ArrowDownToLine, 'Withdrawal Problem': ArrowUpFromLine, 'INR to USD Deposit Problem': Wallet, 'Other Query': LifeBuoy }
+  const create = async () => {
+    if (!form.subject || !form.message) return toast.error('Subject and description are required')
+    try { await api('tickets', { method: 'POST', body: { ...form, category } }); toast.success('Ticket submitted'); setForm({ subject: '', message: '', screenshot: '' }); setCategory(null); load() } catch (e) { toast.error(e.message) }
+  }
+  const send = async () => {
+    if (!reply && !replyShot) return
+    await api(`tickets/${active.id}/reply`, { method: 'POST', body: { message: reply, screenshot: replyShot } })
+    setReply(''); setReplyShot('')
+    const r = await api('tickets'); setTickets(r.items); setActive(r.items.find(t => t.id === active.id))
+  }
+  // Chat view
+  if (active) return (
+    <div className="space-y-4 pb-28">
+      <button onClick={() => setActive(null)} className="text-sm text-white/60 flex items-center gap-1"><ChevronRight className="rotate-180" size={14} /> Back to tickets</button>
+      <GlassCard className="p-4 space-y-2">
+        <div className="flex items-center justify-between"><div><div className="font-bold gold-text">{active.subject}</div><div className="text-xs text-white/50">{active.ticketNo} · {active.category}</div></div><StatusBadge s={active.status} /></div>
+        {active.userInfo && <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs pt-2 border-t border-white/5">
+          <div><div className="text-white/40">User</div><div>{active.userInfo.name}</div></div>
+          <div><div className="text-white/40">Email</div><div className="truncate">{active.userInfo.email}</div></div>
+          <div><div className="text-white/40">Phone</div><div>{active.userInfo.phone || '—'}</div></div>
+          <div><div className="text-white/40">User ID</div><div className="font-mono text-[10px]">{active.userInfo.userId?.slice(0, 12)}…</div></div>
+          <div><div className="text-white/40">Registered</div><div>{new Date(active.userInfo.registeredAt).toLocaleDateString()}</div></div>
+          <div><div className="text-white/40">Referral</div><div>{active.userInfo.referralCode}</div></div>
+        </div>}
+      </GlassCard>
+      <GlassCard className="p-4 flex flex-col h-[55vh]">
+        <div className="flex-1 overflow-auto space-y-2 no-scrollbar">
+          {active.messages.map((m, i) => (
+            <div key={i} className={`max-w-[80%] p-2.5 rounded-xl text-sm ${m.from === 'user' ? 'ml-auto bg-yellow-400/15 border border-yellow-400/30' : 'bg-white/5 border border-white/10'}`}>
+              {m.text}
+              {m.screenshot && <a href={m.screenshot} target="_blank" rel="noreferrer" className="block mt-2"><img src={m.screenshot} className="max-h-32 rounded-lg" /></a>}
+              <div className="text-[10px] text-white/40 mt-1">{new Date(m.at).toLocaleString()} · {m.from}</div>
+            </div>
+          ))}
+        </div>
+        {!['resolved', 'closed'].includes(active.status) ? (
+          <div className="mt-2 space-y-2">
+            <Input placeholder="Screenshot URL (optional)" value={replyShot} onChange={setReplyShot} />
+            <div className="flex gap-2"><input value={reply} onChange={e => setReply(e.target.value)} placeholder="Type a reply…" className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm" /><GoldButton onClick={send} className="!px-4">Send</GoldButton></div>
+          </div>
+        ) : <div className="mt-2 text-xs text-center text-white/50">This ticket is {active.status}. Open a new ticket if you need further help.</div>}
+      </GlassCard>
+    </div>
+  )
+  // Form view for a chosen category
+  if (category) return (
+    <div className="space-y-4 pb-28">
+      <button onClick={() => setCategory(null)} className="text-sm text-white/60 flex items-center gap-1"><ChevronRight className="rotate-180" size={14} /> Back</button>
+      <h1 className="text-2xl font-bold gold-text">{category}</h1>
+      <GlassCard className="p-5 space-y-3">
+        <h3 className="text-sm text-white/60">Your Information (read only)</h3>
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <Field label="Name" value={user.name} />
+          <Field label="User ID" value={user.id.slice(0, 12) + '…'} mono />
+          <Field label="Email" value={user.email} />
+          <Field label="Mobile" value={user.phone || 'Not provided'} />
+          <Field label="Registered" value={new Date(user.createdAt).toLocaleDateString()} />
+          <Field label="Referral Code" value={user.referralCode} />
+        </div>
+        <div className="border-t border-white/10 pt-3 space-y-2">
+          <Input placeholder="Subject" value={form.subject} onChange={v => setForm({ ...form, subject: v })} />
+          <Textarea placeholder="Describe your issue in detail…" value={form.message} onChange={v => setForm({ ...form, message: v })} className="h-32" />
+          <Input placeholder="Screenshot URL (optional, paste image link)" value={form.screenshot} onChange={v => setForm({ ...form, screenshot: v })} />
+          <GoldButton className="w-full" onClick={create}>Submit Ticket</GoldButton>
+        </div>
+      </GlassCard>
+    </div>
+  )
+  // Landing - categories + ticket history
   return (
     <div className="space-y-4 pb-28">
-      <h1 className="text-2xl font-bold gold-text">Support</h1>
-      {!active && <>
-        <GlassCard className="p-5 space-y-3"><Input placeholder="Subject" value={subject} onChange={setSubject} /><Textarea placeholder="Describe your issue…" value={msg} onChange={setMsg} className="h-24" /><GoldButton className="w-full" onClick={create}>Open Ticket</GoldButton></GlassCard>
-        <h2 className="font-semibold">My Tickets</h2>
-        {tickets.map(t => <button key={t.id} onClick={() => setActive(t)} className="w-full text-left glass rounded-xl p-3 flex items-center justify-between"><div><div className="font-medium">{t.subject}</div><div className="text-xs text-white/50">{t.messages.length} messages</div></div><StatusBadge s={t.status} /></button>)}
-      </>}
-      {active && <GlassCard className="p-4 flex flex-col h-[70vh]">
-        <div className="flex items-center justify-between mb-3"><div><div className="font-bold">{active.subject}</div><StatusBadge s={active.status} /></div><button onClick={() => setActive(null)} className="text-white/50"><X size={16} /></button></div>
-        <div className="flex-1 overflow-auto space-y-2 no-scrollbar">{active.messages.map((m, i) => <div key={i} className={`max-w-[80%] p-2.5 rounded-xl text-sm ${m.from === 'user' ? 'ml-auto bg-yellow-400/15 border border-yellow-400/30' : 'bg-white/5 border border-white/10'}`}>{m.text}<div className="text-[10px] text-white/40 mt-1">{new Date(m.at).toLocaleString()}</div></div>)}</div>
-        <div className="mt-2 flex gap-2"><input value={reply} onChange={e => setReply(e.target.value)} placeholder="Type a reply…" className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm" /><GoldButton onClick={send} className="!px-4">Send</GoldButton></div>
-      </GlassCard>}
+      <header><h1 className="text-2xl font-bold gold-text">Support Center</h1><p className="text-white/60 text-sm">Choose a category to open a ticket. {settings?.contact?.responseTime ? `Response time: ${settings.contact.responseTime}.` : ''}</p></header>
+      <div className="grid grid-cols-2 gap-3">
+        {categories.map(c => {
+          const Ic = catIcons[c] || LifeBuoy
+          return (
+            <button key={c} onClick={() => setCategory(c)} className="glass rounded-2xl p-4 text-left hover:bg-white/10 transition flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'linear-gradient(135deg,#fbe089,#b8860b)', color: '#1a1a2e' }}><Ic size={22} /></div>
+              <div className="min-w-0"><div className="font-semibold text-sm">{c}</div><div className="text-[10px] text-white/50">Open a ticket</div></div>
+            </button>
+          )
+        })}
+      </div>
+      {settings?.contact && (
+        <GlassCard className="p-4 text-xs space-y-1">
+          <div className="font-semibold text-yellow-200 mb-1">{settings.contact.businessName || 'Support'}</div>
+          <div className="text-white/70">📧 {settings.contact.email}</div>
+          <div className="text-white/70">📞 {settings.contact.phone}</div>
+          {settings.contact.telegram && <div className="text-white/70">📨 Telegram: {settings.contact.telegram}</div>}
+          {settings.contact.telegramChannel && <div className="text-white/70">📡 Channel: {settings.contact.telegramChannel}</div>}
+          <div className="text-white/70">⏰ {settings.contact.workingHours}</div>
+          <div className="text-white/70">⚡ Response: {settings.contact.responseTime}</div>
+        </GlassCard>
+      )}
+      <h2 className="font-semibold">My Tickets</h2>
+      {!tickets.length && <GlassCard className="p-6 text-center text-white/50 text-sm">No tickets yet.</GlassCard>}
+      {tickets.map(t => (
+        <button key={t.id} onClick={() => setActive(t)} className="w-full text-left glass rounded-xl p-3 flex items-center justify-between hover:bg-white/10">
+          <div className="min-w-0">
+            <div className="font-medium truncate">{t.subject}</div>
+            <div className="text-xs text-white/50">{t.ticketNo || t.id.slice(0, 8)} · {t.category || 'Other'} · {t.messages?.length || 0} messages</div>
+          </div>
+          <StatusBadge s={t.status} />
+        </button>
+      ))}
     </div>
+  )
+}
+const Field = ({ label, value, mono }) => <div className="bg-white/5 rounded-lg p-2"><div className="text-white/40 text-[10px] uppercase tracking-wide">{label}</div><div className={`text-sm font-medium truncate ${mono ? 'font-mono' : ''}`}>{value}</div></div>
+
+// Floating support button (FAB)
+function FloatingSupport({ onClick }) {
+  return (
+    <button onClick={onClick} className="fixed bottom-24 right-4 z-40 w-14 h-14 rounded-full gold-btn shadow-2xl flex items-center justify-center floaty hover:scale-110 transition" title="Get Support" aria-label="Open support">
+      <LifeBuoy size={24} />
+    </button>
   )
 }
 
 // ============ Admin ============
 function AdminPanel({ user, onExit, refresh }) {
   const [tab, setTab] = useState('dash')
-  const tabs = [['dash', 'Dashboard', BarChart3], ['users', 'Users', Users], ['plans', 'Plans', Layers], ['referral', 'Referral / Team', Network], ['deposits', 'Deposits', ArrowDownToLine], ['withdraws', 'Withdrawals', ArrowUpFromLine], ['orders', 'Orders', ShoppingBag], ['gifts', 'Gifts', Gift], ['announce', 'Announce', Bell], ['cms', 'CMS', FileText], ['payment', 'Payments', Building2], ['banner', 'Banner', ImageIcon], ['testimonial', 'Testimonials', Star], ['settings', 'Settings', Settings], ['logs', 'Login Logs', Eye]]
+  const tabs = [['dash', 'Dashboard', BarChart3], ['users', 'Users', Users], ['plans', 'Plans', Layers], ['referral', 'Referral / Team', Network], ['deposits', 'Deposits', ArrowDownToLine], ['withdraws', 'Withdrawals', ArrowUpFromLine], ['orders', 'Orders', ShoppingBag], ['gifts', 'Gifts', Gift], ['tickets', 'Support Tickets', LifeBuoy], ['social', 'Social Media', MessageSquare], ['announce', 'Announce', Bell], ['cms', 'CMS', FileText], ['payment', 'Payments', Building2], ['banner', 'Banner', ImageIcon], ['testimonial', 'Testimonials', Star], ['settings', 'Settings', Settings], ['logs', 'Login Logs', Eye]]
   return (
     <div className="min-h-screen aurora">
       <div className="border-b border-white/5 bg-black/30 backdrop-blur sticky top-0 z-30"><div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3"><Shield className="text-yellow-300" /><div className="font-bold">Admin Console</div><span className="text-xs text-white/40">Premium Investment Platform</span><button onClick={onExit} className="ml-auto px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs flex items-center gap-1"><Home size={14} /> User View</button></div></div>
@@ -740,6 +852,8 @@ function AdminPanel({ user, onExit, refresh }) {
           {tab === 'withdraws' && <AdminApprovals collection="withdraws" />}
           {tab === 'orders' && <AdminOrders />}
           {tab === 'gifts' && <AdminGifts />}
+          {tab === 'tickets' && <AdminTickets />}
+          {tab === 'social' && <AdminSocial />}
           {tab === 'announce' && <AdminAnnounce />}
           {tab === 'cms' && <AdminCMS />}
           {tab === 'payment' && <AdminPaymentMethods />}
@@ -1020,6 +1134,153 @@ function AdminGifts() {
   )
 }
 
+function AdminTickets() {
+  const [items, setItems] = useState([])
+  const [filters, setFilters] = useState({ category: '', status: '', q: '' })
+  const [active, setActive] = useState(null)
+  const [reply, setReply] = useState('')
+  const [replyShot, setReplyShot] = useState('')
+  const load = async () => {
+    const qs = new URLSearchParams(Object.entries(filters).filter(([_, v]) => v)).toString()
+    const r = await api('tickets' + (qs ? '?' + qs : ''))
+    setItems(r.items)
+    if (active) setActive(r.items.find(t => t.id === active.id) || null)
+  }
+  useEffect(() => { load() }, [filters.category, filters.status])
+  const send = async () => { if (!reply && !replyShot) return; await api(`tickets/${active.id}/reply`, { method: 'POST', body: { message: reply, screenshot: replyShot } }); setReply(''); setReplyShot(''); load() }
+  const setStatus = async (status) => { await api(`tickets/${active.id}/status`, { method: 'PATCH', body: { status } }); toast.success(`Marked ${status}`); load() }
+  const catOpts = [{ value: '', label: 'All Categories' }, ...['Recharge Problem', 'Withdrawal Problem', 'INR to USD Deposit Problem', 'Other Query'].map(c => ({ value: c, label: c }))]
+  const stOpts = [{ value: '', label: 'All Status' }, { value: 'pending', label: 'Pending' }, { value: 'in_progress', label: 'In Progress' }, { value: 'resolved', label: 'Resolved' }, { value: 'closed', label: 'Closed' }]
+  return (
+    <div className="space-y-3">
+      <GlassCard className="p-3 grid sm:grid-cols-4 gap-2">
+        <Select value={filters.category} onChange={v => setFilters({ ...filters, category: v })} options={catOpts} />
+        <Select value={filters.status} onChange={v => setFilters({ ...filters, status: v })} options={stOpts} />
+        <input value={filters.q} onChange={e => setFilters({ ...filters, q: e.target.value })} onKeyDown={e => e.key === 'Enter' && load()} placeholder="Search User ID / Name / Ticket #…" className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm sm:col-span-1" />
+        <GoldButton onClick={load} className="!py-2"><span className="flex items-center justify-center gap-1"><Search size={14} /> Search</span></GoldButton>
+      </GlassCard>
+      <GlassCard className="p-3 overflow-auto">
+        <table className="w-full text-sm">
+          <thead><tr className="text-white/50 text-xs"><th className="text-left p-2">Ticket</th><th className="text-left">User</th><th>Category</th><th>Status</th><th>Updated</th></tr></thead>
+          <tbody>
+            {items.map(t => (
+              <tr key={t.id} onClick={() => setActive(t)} className="border-t border-white/5 cursor-pointer hover:bg-white/5">
+                <td className="p-2"><div className="font-mono text-xs text-yellow-200">{t.ticketNo || t.id.slice(0, 8)}</div><div className="text-xs text-white/60 truncate max-w-[200px]">{t.subject}</div></td>
+                <td><div className="text-xs">{t.userInfo?.name || t.userName}</div><div className="text-[10px] text-white/40 truncate max-w-[140px]">{t.userInfo?.email}</div></td>
+                <td className="text-center text-xs">{t.category || '—'}</td>
+                <td className="text-center"><StatusBadge s={t.status} /></td>
+                <td className="text-center text-[10px] text-white/50">{new Date(t.updatedAt || t.createdAt).toLocaleString()}</td>
+              </tr>
+            ))}
+            {!items.length && <tr><td colSpan={5} className="text-center p-8 text-white/40 text-sm">No tickets found.</td></tr>}
+          </tbody>
+        </table>
+      </GlassCard>
+      {active && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setActive(null)}>
+          <div className="glass-strong rounded-2xl max-w-2xl w-full p-5 max-h-[90vh] overflow-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <div><div className="font-bold gold-text">{active.subject}</div><div className="text-xs text-white/50">{active.ticketNo} · {active.category}</div></div>
+              <button onClick={() => setActive(null)}><X size={18} /></button>
+            </div>
+            {active.userInfo && <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs p-3 bg-white/5 rounded-xl mb-3">
+              <Field label="User" value={active.userInfo.name} />
+              <Field label="Email" value={active.userInfo.email} />
+              <Field label="Phone" value={active.userInfo.phone || '—'} />
+              <Field label="User ID" value={active.userInfo.userId} mono />
+              <Field label="Registered" value={new Date(active.userInfo.registeredAt).toLocaleString()} />
+              <Field label="Referral" value={active.userInfo.referralCode} />
+            </div>}
+            <div className="flex gap-2 mb-3">
+              {[['pending', 'gold'], ['in_progress', 'blue'], ['resolved', 'green'], ['closed', 'red']].map(([s]) => (
+                <button key={s} onClick={() => setStatus(s)} className={`px-3 py-1.5 rounded-lg text-xs ${active.status === s ? 'gold-btn !shadow-none' : 'bg-white/5 border border-white/10'}`}>{s.replace('_', ' ')}</button>
+              ))}
+            </div>
+            <div className="space-y-2 max-h-80 overflow-auto no-scrollbar mb-3">
+              {active.messages.map((m, i) => (
+                <div key={i} className={`max-w-[80%] p-2.5 rounded-xl text-sm ${m.from === 'admin' ? 'ml-auto bg-yellow-400/15 border border-yellow-400/30' : 'bg-white/5 border border-white/10'}`}>
+                  {m.text}
+                  {m.screenshot && <a href={m.screenshot} target="_blank" rel="noreferrer"><img src={m.screenshot} className="max-h-32 rounded mt-2" /></a>}
+                  <div className="text-[10px] text-white/40 mt-1">{new Date(m.at).toLocaleString()} · {m.from}</div>
+                </div>
+              ))}
+            </div>
+            <Input placeholder="Screenshot URL (optional)" value={replyShot} onChange={setReplyShot} />
+            <div className="flex gap-2 mt-2">
+              <input value={reply} onChange={e => setReply(e.target.value)} placeholder="Reply as admin…" className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm" />
+              <GoldButton onClick={send} className="!px-4">Send</GoldButton>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AdminSocial() {
+  const [s, setS] = useState(null)
+  const load = () => api('settings').then(r => setS(r.settings))
+  useEffect(() => { load() }, [])
+  if (!s) return <div className="text-white/60">Loading…</div>
+  const PLATFORMS = [
+    { key: 'telegram', label: 'Telegram', emoji: '📨' },
+    { key: 'whatsapp', label: 'WhatsApp', emoji: '💬' },
+    { key: 'facebook', label: 'Facebook', emoji: '📘' },
+    { key: 'instagram', label: 'Instagram', emoji: '📸' },
+    { key: 'twitter', label: 'X (Twitter)', emoji: '🐦' },
+    { key: 'youtube', label: 'YouTube', emoji: '▶️' },
+    { key: 'discord', label: 'Discord', emoji: '🎮' },
+    { key: 'website', label: 'Website', emoji: '🌐' },
+  ]
+  const social = s.social || {}
+  const update = (key, patch) => setS({ ...s, social: { ...social, [key]: { ...(social[key] || {}), ...patch } } })
+  const save = async () => { await api('settings', { method: 'PATCH', body: { social: s.social } }); toast.success('Social links saved'); load() }
+  const saveFloating = async (v) => { await api('settings', { method: 'PATCH', body: { floatingSupportEnabled: v } }); load(); toast.success('Saved') }
+  const saveContact = async () => { await api('settings', { method: 'PATCH', body: { contact: s.contact } }); toast.success('Contact saved'); load() }
+  return (
+    <div className="space-y-3">
+      <GlassCard className="p-4">
+        <h3 className="font-bold text-lg gold-text mb-2 flex items-center gap-2"><MessageSquare size={18} /> Social Media Settings</h3>
+        <p className="text-xs text-white/60 mb-3">Toggle visibility per platform. Disabled platforms won't appear anywhere on the site.</p>
+        <div className="space-y-2">
+          {PLATFORMS.map(p => {
+            const cfg = social[p.key] || { enabled: false, url: '' }
+            return (
+              <div key={p.key} className="grid grid-cols-[auto_1fr_auto] gap-2 items-center bg-white/5 rounded-xl p-2.5">
+                <div className="flex items-center gap-2 w-32"><span className="text-xl">{p.emoji}</span><span className="text-sm font-medium">{p.label}</span></div>
+                <Input placeholder={`${p.label} URL`} value={cfg.url} onChange={v => update(p.key, { url: v })} />
+                <label className="flex items-center gap-2 text-xs cursor-pointer"><input type="checkbox" checked={!!cfg.enabled} onChange={e => update(p.key, { enabled: e.target.checked })} className="accent-yellow-400 w-5 h-5" /> {cfg.enabled ? 'Visible' : 'Hidden'}</label>
+              </div>
+            )
+          })}
+        </div>
+        <GoldButton className="w-full mt-3" onClick={save}>Save Social Links</GoldButton>
+      </GlassCard>
+
+      <GlassCard className="p-4">
+        <h3 className="font-semibold mb-3">Floating Support Button</h3>
+        <Toggle checked={s.floatingSupportEnabled} onChange={saveFloating} label="Show floating support button on all user pages" />
+      </GlassCard>
+
+      <GlassCard className="p-4 space-y-2">
+        <h3 className="font-semibold">Contact / Support Settings</h3>
+        <div className="grid sm:grid-cols-2 gap-2">
+          <div><div className="text-xs text-white/50">Business Name</div><Input value={s.contact?.businessName || ''} onChange={v => setS({ ...s, contact: { ...s.contact, businessName: v } })} /></div>
+          <div><div className="text-xs text-white/50">Support Email</div><Input value={s.contact?.email || ''} onChange={v => setS({ ...s, contact: { ...s.contact, email: v } })} /></div>
+          <div><div className="text-xs text-white/50">Telegram Username</div><Input value={s.contact?.telegram || ''} onChange={v => setS({ ...s, contact: { ...s.contact, telegram: v } })} /></div>
+          <div><div className="text-xs text-white/50">Telegram Channel</div><Input value={s.contact?.telegramChannel || ''} onChange={v => setS({ ...s, contact: { ...s.contact, telegramChannel: v } })} /></div>
+          <div><div className="text-xs text-white/50">Working Hours</div><Input value={s.contact?.workingHours || ''} onChange={v => setS({ ...s, contact: { ...s.contact, workingHours: v } })} /></div>
+          <div><div className="text-xs text-white/50">Response Time</div><Input value={s.contact?.responseTime || ''} onChange={v => setS({ ...s, contact: { ...s.contact, responseTime: v } })} /></div>
+          <div><div className="text-xs text-white/50">Phone</div><Input value={s.contact?.phone || ''} onChange={v => setS({ ...s, contact: { ...s.contact, phone: v } })} /></div>
+          <div><div className="text-xs text-white/50">WhatsApp</div><Input value={s.contact?.whatsapp || ''} onChange={v => setS({ ...s, contact: { ...s.contact, whatsapp: v } })} /></div>
+          <div className="sm:col-span-2"><div className="text-xs text-white/50">Address</div><Input value={s.contact?.address || ''} onChange={v => setS({ ...s, contact: { ...s.contact, address: v } })} /></div>
+        </div>
+        <GoldButton className="w-full" onClick={saveContact}>Save Contact Settings</GoldButton>
+      </GlassCard>
+    </div>
+  )
+}
+
 function AdminAnnounce() {
   const [s, setS] = useState(null); const [form, setForm] = useState({ title: '', message: '' })
   const load = () => api('settings').then(r => setS(r.settings))
@@ -1271,10 +1532,11 @@ function App() {
         {view === 'privacy' && <CMSPage settings={settings} page="privacy" />}
         {view === 'refund' && <CMSPage settings={settings} page="refund" />}
         {view === 'contact' && <CMSPage settings={settings} page="contact" />}
-        {view === 'support' && <SupportPage />}
+        {view === 'support' && <SupportPage user={user} settings={settings} />}
         {view === 'notifications' && <NotificationsPage settings={settings} />}
       </main>
       <BottomNav active={['home', 'plans', 'team', 'mine'].includes(view) ? view : 'home'} onChange={setView} />
+      {settings?.floatingSupportEnabled && view !== 'support' && <FloatingSupport onClick={() => setView('support')} />}
     </div>
   )
 }
