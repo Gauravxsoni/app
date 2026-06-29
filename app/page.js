@@ -725,7 +725,7 @@ function SupportPage() {
 // ============ Admin ============
 function AdminPanel({ user, onExit, refresh }) {
   const [tab, setTab] = useState('dash')
-  const tabs = [['dash', 'Dashboard', BarChart3], ['users', 'Users', Users], ['plans', 'Plans', Layers], ['deposits', 'Deposits', ArrowDownToLine], ['withdraws', 'Withdrawals', ArrowUpFromLine], ['orders', 'Orders', ShoppingBag], ['gifts', 'Gifts', Gift], ['announce', 'Announce', Bell], ['cms', 'CMS', FileText], ['payment', 'Payments', Building2], ['banner', 'Banner', ImageIcon], ['testimonial', 'Testimonials', Star], ['settings', 'Settings', Settings], ['logs', 'Login Logs', Eye]]
+  const tabs = [['dash', 'Dashboard', BarChart3], ['users', 'Users', Users], ['plans', 'Plans', Layers], ['referral', 'Referral / Team', Network], ['deposits', 'Deposits', ArrowDownToLine], ['withdraws', 'Withdrawals', ArrowUpFromLine], ['orders', 'Orders', ShoppingBag], ['gifts', 'Gifts', Gift], ['announce', 'Announce', Bell], ['cms', 'CMS', FileText], ['payment', 'Payments', Building2], ['banner', 'Banner', ImageIcon], ['testimonial', 'Testimonials', Star], ['settings', 'Settings', Settings], ['logs', 'Login Logs', Eye]]
   return (
     <div className="min-h-screen aurora">
       <div className="border-b border-white/5 bg-black/30 backdrop-blur sticky top-0 z-30"><div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3"><Shield className="text-yellow-300" /><div className="font-bold">Admin Console</div><span className="text-xs text-white/40">Premium Investment Platform</span><button onClick={onExit} className="ml-auto px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs flex items-center gap-1"><Home size={14} /> User View</button></div></div>
@@ -735,6 +735,7 @@ function AdminPanel({ user, onExit, refresh }) {
           {tab === 'dash' && <AdminDash />}
           {tab === 'users' && <AdminUsers />}
           {tab === 'plans' && <AdminPlans />}
+          {tab === 'referral' && <AdminReferral />}
           {tab === 'deposits' && <AdminApprovals collection="recharges" />}
           {tab === 'withdraws' && <AdminApprovals collection="withdraws" />}
           {tab === 'orders' && <AdminOrders />}
@@ -868,6 +869,89 @@ function AdminPlans() {
             <button onClick={() => del(p.id)} className="text-xs px-2 py-1 rounded bg-red-500/20 text-red-300"><Trash2 size={11} className="inline" /></button>
           </div>
         </GlassCard>))}</div>
+    </div>
+  )
+}
+
+function AdminReferral() {
+  const [s, setS] = useState(null)
+  const [stats, setStats] = useState(null)
+  const load = () => { api('settings').then(r => setS(r.settings)); api('admin/stats').then(setStats) }
+  useEffect(() => { load() }, [])
+  if (!s) return <div className="text-white/60">Loading…</div>
+  const ref = s.referral || { levels: [10, 5, 2], maxLevels: 3, enabled: true, signupBonus: 0 }
+  const setRef = (patch) => setS({ ...s, referral: { ...ref, ...patch } })
+  const setLevel = (i, val) => {
+    const levels = [...(ref.levels || [])]
+    levels[i] = +val
+    setRef({ levels })
+  }
+  const save = async () => {
+    await api('settings', { method: 'PATCH', body: { referral: { ...ref, levels: ref.levels.map(x => +x) } } })
+    toast.success('Referral settings saved — changes apply instantly')
+    load()
+  }
+  return (
+    <div className="space-y-3">
+      <GlassCard className="p-4">
+        <div className="flex items-center gap-2 mb-3"><Network className="text-yellow-300" size={20} /><h3 className="font-bold text-lg gold-text">Referral / Team Management</h3></div>
+        <p className="text-xs text-white/60 mb-4">Changes save directly to the database and apply to all future commission calculations — no code changes needed.</p>
+
+        <Toggle checked={ref.enabled} onChange={v => setRef({ enabled: v })} label="Enable Referral System (master switch)" />
+
+        <div className="mt-4">
+          <h4 className="font-semibold text-sm mb-2">Commission Percentages</h4>
+          <div className="grid sm:grid-cols-3 gap-3">
+            {[0, 1, 2].map(i => (
+              <div key={i} className="glass rounded-xl p-3">
+                <div className="flex items-center justify-between mb-2"><Badge color={i === 0 ? 'gold' : i === 1 ? 'purple' : 'blue'}>Level {i + 1}</Badge></div>
+                <div className="text-xs text-white/50 mb-1">Commission %</div>
+                <div className="flex items-center gap-2">
+                  <input type="number" step="0.1" value={ref.levels?.[i] ?? 0} onChange={e => setLevel(i, e.target.value)} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-2xl font-bold gold-text" />
+                  <span className="text-2xl gold-text">%</span>
+                </div>
+                <div className="text-[10px] text-white/40 mt-1">Paid to L{i + 1} upline on each daily profit collection</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid sm:grid-cols-2 gap-3 mt-4">
+          <div className="glass rounded-xl p-3">
+            <div className="text-xs text-white/50 mb-1">Maximum Referral Levels</div>
+            <input type="number" min="1" max={ref.levels?.length || 3} value={ref.maxLevels} onChange={e => setRef({ maxLevels: +e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm" />
+            <div className="text-[10px] text-white/40 mt-1">Levels to walk up the chain (max {ref.levels?.length || 3})</div>
+          </div>
+          <div className="glass rounded-xl p-3">
+            <div className="text-xs text-white/50 mb-1">Signup Bonus (Bonus Wallet)</div>
+            <input type="number" value={ref.signupBonus || 0} onChange={e => setRef({ signupBonus: +e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm" />
+            <div className="text-[10px] text-white/40 mt-1">Credited to bonus wallet for users who sign up via a referral link</div>
+          </div>
+        </div>
+
+        <div className="mt-4 p-3 rounded-xl bg-yellow-400/5 border border-yellow-400/20 text-xs text-white/70">
+          <div className="font-semibold text-yellow-200 mb-1">Example calculation</div>
+          When a user collects <span className="gold-text font-bold">$10</span> daily profit, their uplines receive:
+          L1: <span className="text-green-300 font-bold">${((ref.levels?.[0] || 0) * 0.1).toFixed(2)}</span> ·
+          L2: <span className="text-green-300 font-bold">${((ref.levels?.[1] || 0) * 0.1).toFixed(2)}</span> ·
+          L3: <span className="text-green-300 font-bold">${((ref.levels?.[2] || 0) * 0.1).toFixed(2)}</span>
+        </div>
+
+        <GoldButton className="w-full mt-4 !py-3" onClick={save}><span className="flex items-center justify-center gap-2"><BadgeCheck size={16} /> Save Referral Settings</span></GoldButton>
+      </GlassCard>
+
+      <GlassCard className="p-4">
+        <h3 className="font-semibold mb-3 flex items-center gap-2"><Trophy size={16} className="text-yellow-300" /> Top Referrers</h3>
+        <div className="space-y-1">
+          {(stats?.topReferrers || []).map((u, i) => (
+            <div key={i} className="flex justify-between items-center py-1.5 border-b border-white/5">
+              <span className="text-sm flex items-center gap-2"><Badge color={i === 0 ? 'gold' : i < 3 ? 'purple' : 'blue'}>#{i + 1}</Badge>{u.name}</span>
+              <span className="text-sm gold-text font-bold">{fmt(u.referralIncome)}</span>
+            </div>
+          ))}
+          {!stats?.topReferrers?.length && <div className="text-xs text-white/40">No referrers yet.</div>}
+        </div>
+      </GlassCard>
     </div>
   )
 }
